@@ -170,4 +170,3 @@ class DatabaseConfig:
         LEFT JOIN kualitas_hidup kh ON k.id_kota = kh.id_kota
         """
         return DatabaseConfig.execute_query(query)
-    
