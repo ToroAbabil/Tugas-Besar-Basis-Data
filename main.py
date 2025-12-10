@@ -14,35 +14,28 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
 <style>
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 20px;
-        border-radius: 10px;
-        text-align: center;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        padding: 10px 20px;
-    }
+    .metric-card {background-color: #f0f2f6; padding: 20px; border-radius: 10px; text-align: center;}
+    .stTabs [data-baseweb="tab-list"] {gap: 24px;}
+    .stTabs [data-baseweb="tab"] {height: 50px; padding: 10px 20px;}
 </style>
 """, unsafe_allow_html=True)
 
-# Fungsi helper untuk filter negara dan kota
+# ============================================
+# HELPER FUNCTIONS
+# ============================================
+
 def render_filter(key_prefix):
     """Render filter negara dan kota"""
     col1, col2 = st.columns(2)
     
     with col1:
         negara_list = DatabaseConfig.get_negara_list()
-        negara_options = ['Semua Negara'] + negara_list['nama'].tolist()
+        negara_options = ['Semua Negara'] + negara_list['nama_negara'].tolist()
         selected_negara = st.selectbox("Pilih Negara", negara_options, key=f"{key_prefix}_negara")
     
     with col2:
         if selected_negara != 'Semua Negara':
-            kode_negara = negara_list[negara_list['nama'] == selected_negara]['kode_negara'].values[0]
+            kode_negara = negara_list[negara_list['nama_negara'] == selected_negara]['kode_negara'].values[0]
             kota_list = DatabaseConfig.get_kota_by_negara(kode_negara)
             kota_options = ['Semua Kota'] + kota_list['nama_kota'].tolist()
             selected_kota = st.selectbox("Pilih Kota", kota_options, key=f"{key_prefix}_kota")
@@ -61,7 +54,7 @@ def get_filtered_data(selected_negara, selected_kota, negara_list, kota_list, da
         id_kota = kota_list[kota_list['nama_kota'] == selected_kota]['id_kota'].values[0]
         return get_data_func(id_kota=id_kota)
     elif selected_negara != 'Semua Negara':
-        kode_negara = negara_list[negara_list['nama'] == selected_negara]['kode_negara'].values[0]
+        kode_negara = negara_list[negara_list['nama_negara'] == selected_negara]['kode_negara'].values[0]
         all_kota = DatabaseConfig.get_kota_by_negara(kode_negara)
         kota_ids = all_kota['id_kota'].tolist()
         df = get_data_func()
@@ -73,11 +66,9 @@ def render_metrics(df, metrics_config):
     """Render metrics secara dinamis"""
     latest_data = df[df['tahun'] == df['tahun'].max()]
     cols = st.columns(len(metrics_config))
-    
     for i, (col_name, label) in enumerate(metrics_config.items()):
         with cols[i]:
-            avg_val = latest_data[col_name].mean()
-            st.metric(label, f"{avg_val:.1f}")
+            st.metric(label, f"{latest_data[col_name].mean():.1f}")
 
 def render_trend_chart(df, y_col, title, selected_kota, color):
     """Render chart trend"""
@@ -86,25 +77,40 @@ def render_trend_chart(df, y_col, title, selected_kota, color):
                      labels={'tahun': 'Tahun', y_col: title}, markers=True)
         fig.update_traces(line_color=color)
     else:
-        fig = px.line(df, x='tahun', y=y_col, color='nama_kota', 
-                     title=f'{title} per Kota', labels={'tahun': 'Tahun', y_col: title}, 
-                     markers=True, color_discrete_sequence=DatabaseConfig.COLOR_PALETTE)
-    
+        fig = px.line(df, x='tahun', y=y_col, color='nama_kota', title=f'{title} per Kota',
+                     labels={'tahun': 'Tahun', y_col: title}, markers=True, 
+                     color_discrete_sequence=DatabaseConfig.COLOR_PALETTE)
     fig.update_layout(height=500)
+    st.plotly_chart(fig, use_container_width=True)
+
+def render_comparison_bar(df, indicators, labels_map, title):
+    """Render grouped bar chart untuk perbandingan indikator"""
+    fig = go.Figure()
+    for indicator in indicators:
+        fig.add_trace(go.Bar(
+            name=labels_map.get(indicator, indicator).upper(),
+            x=df['nama_kota'], y=df[indicator]
+        ))
+    fig.update_layout(title=title, xaxis_title='Kota', yaxis_title='Nilai Index', 
+                     barmode='group', height=500)
+    st.plotly_chart(fig, use_container_width=True)
+
+def render_horizontal_bar(df, x_col, title, color_scale):
+    """Render horizontal bar chart"""
+    df_sorted = df.sort_values(x_col, ascending=True)
+    fig = px.bar(df_sorted, y='nama_kota', x=x_col, orientation='h', title=title,
+               labels={'nama_kota': 'Kota', x_col: title.split('per')[0].strip()},
+               color=x_col, color_continuous_scale=color_scale)
+    fig.update_layout(height=max(400, len(df_sorted) * 30))
     st.plotly_chart(fig, use_container_width=True)
 
 def render_data_table(df, available_columns, default_cols, key):
     """Render tabel data dengan pemilihan kolom"""
     st.markdown("---")
     st.subheader("Data Detail")
-    
-    selected_columns = st.multiselect(
-        "Pilih kolom yang ingin ditampilkan:",
-        options=list(available_columns.keys()),
-        default=default_cols,
-        format_func=lambda x: available_columns[x],
-        key=key
-    )
+    selected_columns = st.multiselect("Pilih kolom yang ingin ditampilkan:",
+        options=list(available_columns.keys()), default=default_cols,
+        format_func=lambda x: available_columns[x], key=key)
     
     if selected_columns:
         display_df = df[selected_columns].sort_values('tahun', ascending=False) if 'tahun' in selected_columns else df[selected_columns]
@@ -113,7 +119,87 @@ def render_data_table(df, available_columns, default_cols, key):
     else:
         st.warning("Pilih minimal satu kolom untuk ditampilkan")
 
-# Sidebar Navigation
+def render_comparison_metrics(data, metrics_list, col_name):
+    """Render metrics untuk perbandingan 2 kota"""
+    st.markdown(f"#### {data['nama_kota']}")
+    for metric, label in metrics_list:
+        st.metric(label, f"{data[metric]:.1f}")
+
+def render_comparison_tab(df1, df2, data_type='polusi'):
+    """Render tab perbandingan (polusi atau kualitas hidup)"""
+    if df1.empty or df2.empty:
+        st.warning(f"Data {data_type} tidak lengkap untuk perbandingan")
+        return
+    
+    common_years = set(df1['tahun'].tolist()) & set(df2['tahun'].tolist())
+    if not common_years:
+        st.warning("Tidak ada data tahun yang sama untuk kedua kota")
+        return
+    
+    latest_year = max(common_years)
+    d1 = df1[df1['tahun'] == latest_year].iloc[0]
+    d2 = df2[df2['tahun'] == latest_year].iloc[0]
+    
+    # Metrics
+    col1, col2 = st.columns(2)
+    
+    if data_type == 'polusi':
+        metrics = [('index_kualitas_udara', 'Index Kualitas Udara'), ('pm25', 'PM2.5'), 
+                  ('index_co2', 'CO2'), ('index_no2', 'NO2')]
+        chart_data = [d1['index_kualitas_udara'], d1['pm25'], d1['index_co2'], d1['index_no2']]
+        chart_data2 = [d2['index_kualitas_udara'], d2['pm25'], d2['index_co2'], d2['index_no2']]
+        chart_labels = ['Index Polusi', 'PM2.5', 'CO2', 'NO2']
+        y_col = 'index_kualitas_udara'
+    else:
+        metrics = [('index_kualitas_hidup', 'Index Kualitas Hidup'), ('index_keamanan', 'Keamanan'),
+                  ('index_kesehatan', 'Kesehatan'), ('index_pendidikan', 'Pendidikan'), 
+                  ('index_biaya_hidup', 'Biaya Hidup')]
+        indicators = ['index_keamanan', 'index_kesehatan', 'index_pendidikan', 'index_biaya_hidup']
+        y_col = 'index_kualitas_hidup'
+    
+    with col1:
+        render_comparison_metrics(d1, metrics, 'col1')
+    
+    with col2:
+        render_comparison_metrics(d2, metrics, 'col2')
+        # Add delta untuk col2
+        for i, (metric, label) in enumerate(metrics):
+            delta = d2[metric] - d1[metric]
+    
+    st.markdown("---")
+    
+    # Chart perbandingan
+    if data_type == 'polusi':
+        fig = go.Figure(data=[
+            go.Bar(name=d1['nama_kota'], x=chart_labels, y=chart_data),
+            go.Bar(name=d2['nama_kota'], x=chart_labels, y=chart_data2)
+        ])
+        fig.update_layout(title=f'Perbandingan Indikator Polusi ({latest_year})', 
+                         barmode='group', height=400)
+    else:
+        # Radar chart untuk kualitas hidup
+        fig = go.Figure()
+        labels_radar = ['Keamanan', 'Kesehatan', 'Pendidikan', 'Biaya Hidup']
+        fig.add_trace(go.Scatterpolar(r=[d1[ind] for ind in indicators], theta=labels_radar,
+                                     fill='toself', name=d1['nama_kota']))
+        fig.add_trace(go.Scatterpolar(r=[d2[ind] for ind in indicators], theta=labels_radar,
+                                     fill='toself', name=d2['nama_kota']))
+        fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                        title=f'Perbandingan Indikator Kualitas Hidup ({latest_year})', height=500)
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Trend comparison
+    st.markdown(f"#### Trend {data_type.title()} dari Waktu ke Waktu")
+    combined = pd.concat([df1.assign(kota=d1['nama_kota']), df2.assign(kota=d2['nama_kota'])])
+    fig = px.line(combined, x='tahun', y=y_col, color='kota', markers=True,
+                labels={'tahun': 'Tahun', y_col: y_col.replace('_', ' ').title()})
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True)
+
+# ============================================
+# SIDEBAR NAVIGATION
+# ============================================
 with st.sidebar:
     st.title("Dashboard Menu")
     st.markdown("---")
@@ -127,7 +213,6 @@ if menu == "Home":
     st.title("Dashboard Polusi dan Kualitas Hidup Global")
     st.markdown("dashboard visualisasi data polusi dan kualitas hidup kota-kota di dunia")
     
-    # Statistik Ringkasan
     stats = DatabaseConfig.get_summary_stats()
     
     if not stats.empty:
@@ -148,44 +233,29 @@ if menu == "Home":
     # Data Overview
     col1, col2 = st.columns(2)
     
-    # Chart Polusi
-    with col1:
-        st.markdown("### Data Polusi Terkini")
-        polusi_df = DatabaseConfig.get_polusi_data()
-        if not polusi_df.empty:
-            latest_year = polusi_df['tahun'].max()
-            latest_polusi = polusi_df[polusi_df['tahun'] == latest_year].nlargest(5, 'index_kualitas_udara')
-            
-            fig = px.bar(latest_polusi, x='nama_kota', y='index_kualitas_udara',
-                        title=f'5 Kota dengan Polusi Tertinggi ({latest_year})',
-                        labels={'nama_kota': 'Kota', 'index_kualitas_udara': 'Index Polusi'},
-                        color='index_kualitas_udara', color_continuous_scale='Reds')
-            fig.update_layout(showlegend=False, height=400)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Data polusi tidak tersedia")
-    
-    # Chart Kualitas Hidup
-    with col2:
-        st.markdown("### Data Kualitas Hidup Terkini")
-        kualitas_df = DatabaseConfig.get_kualitas_hidup_data()
-        if not kualitas_df.empty:
-            latest_year = kualitas_df['tahun'].max()
-            latest_kualitas = kualitas_df[kualitas_df['tahun'] == latest_year].nlargest(5, 'index_kualitas_hidup')
-            
-            fig = px.bar(latest_kualitas, x='nama_kota', y='index_kualitas_hidup',
-                        title=f'5 Kota dengan Kualitas Hidup Terbaik ({latest_year})',
-                        labels={'nama_kota': 'Kota', 'index_kualitas_hidup': 'Index Kualitas Hidup'},
-                        color='index_kualitas_hidup', color_continuous_scale='Greens')
-            fig.update_layout(showlegend=False, height=400)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Data kualitas hidup tidak tersedia")
+    for col, (title, df_func, y_col, scale, is_largest) in [
+        (col1, ("Data Polusi Terkini", DatabaseConfig.get_polusi_data, 'index_kualitas_udara', 'Reds', True)),
+        (col2, ("Data Kualitas Hidup Terkini", DatabaseConfig.get_kualitas_hidup_data, 'index_kualitas_hidup', 'Greens', True))
+    ]:
+        with col:
+            st.markdown(f"### {title}")
+            df = df_func()
+            if not df.empty:
+                latest_year = df['tahun'].max()
+                latest_df = df[df['tahun'] == latest_year].nlargest(5, y_col) if is_largest else df[df['tahun'] == latest_year].nsmallest(5, y_col)
+                
+                fig = px.bar(latest_df, x='nama_kota', y=y_col,
+                           title=f'5 Kota {"Tertinggi" if "Polusi" in title else "Terbaik"} ({latest_year})',
+                           labels={'nama_kota': 'Kota', y_col: y_col.replace('_', ' ').title()},
+                           color=y_col, color_continuous_scale=scale)
+                fig.update_layout(showlegend=False, height=400)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning(f"Data {title.lower()} tidak tersedia")
     
     # Distribusi per Benua
     st.markdown("---")
     st.markdown("### Distribusi Kota per Benua")
-    
     negara_df = DatabaseConfig.get_negara_list()
     kota_df = DatabaseConfig.get_all_kota()
     
@@ -193,7 +263,6 @@ if menu == "Home":
         kota_benua = kota_df.merge(negara_df[['kode_negara', 'benua']], on='kode_negara')
         benua_count = kota_benua['benua'].value_counts().reset_index()
         benua_count.columns = ['benua', 'jumlah_kota']
-        
         fig = px.pie(benua_count, values='jumlah_kota', names='benua',
                     title='Distribusi Kota Berdasarkan Benua',
                     color_discrete_sequence=DatabaseConfig.COLOR_PALETTE)
@@ -201,174 +270,80 @@ if menu == "Home":
         st.plotly_chart(fig, use_container_width=True)
 
 # ============================================
-# HALAMAN POLUSI
+# HALAMAN POLUSI & KUALITAS HIDUP (GENERIC)
 # ============================================
-elif menu == "Polusi Udara":
-    st.title("Analisis Data Polusi Udara")
+elif menu in ["Polusi Udara", "Kualitas Hidup"]:
+    data_type = 'polusi' if menu == "Polusi Udara" else 'kualitas'
+    is_polusi = data_type == 'polusi'
     
-    # Filter
-    selected_negara, selected_kota, negara_list, kota_list = render_filter("polusi")
+    st.title(f"Analisis Data {menu}")
     
-    # Ambil data
-    polusi_df = get_filtered_data(selected_negara, selected_kota, negara_list, kota_list, 'polusi')
+    selected_negara, selected_kota, negara_list, kota_list = render_filter(data_type)
+    df = get_filtered_data(selected_negara, selected_kota, negara_list, kota_list, data_type)
     
-    if not polusi_df.empty:
+    if not df.empty:
         st.markdown("---")
         
-        # Metrics
-        metrics_config = {
-            'index_kualitas_udara': 'Rata-rata Index Polusi',
-            'pm25': 'Rata-rata PM2.5',
-            'index_co2': 'Rata-rata CO2',
-            'index_no2': 'Rata-rata NO2'
-        }
-        render_metrics(polusi_df, metrics_config)
+        # Metrics configuration
+        if is_polusi:
+            metrics_config = {'index_kualitas_udara': 'Rata-rata Index Polusi', 'pm25': 'Rata-rata PM2.5',
+                            'index_co2': 'Rata-rata CO2', 'index_no2': 'Rata-rata NO2'}
+            indicators = ['index_co2', 'index_ozone', 'index_no2', 'pm25']
+            labels_map = {'index_co2': 'CO2', 'index_ozone': 'Ozone', 'index_no2': 'NO2', 'pm25': 'PM2.5'}
+            main_col = 'index_kualitas_udara'
+            color = DatabaseConfig.COLORS['danger']
+            color_scale = 'Reds'
+            available_columns = {'nama_kota': 'Nama Kota', 'nama_negara': 'Nama Negara', 'tahun': 'Tahun',
+                               'index_kualitas_udara': 'Index Kualitas Udara', 'index_co2': 'Index CO2',
+                               'index_ozone': 'Index Ozone', 'index_no2': 'Index NO2', 'pm25': 'PM2.5'}
+            default_cols = ['nama_kota', 'nama_negara', 'tahun', 'index_kualitas_udara', 'pm25']
+        else:
+            metrics_config = {'index_kualitas_hidup': 'Index Kualitas', 'index_keamanan': 'Keamanan',
+                            'index_kesehatan': 'Kesehatan', 'index_pendidikan': 'Pendidikan',
+                            'index_biaya_hidup': 'Biaya Hidup'}
+            indicators = ['index_keamanan', 'index_kesehatan', 'index_pendidikan', 'index_biaya_hidup']
+            labels_map = {k: k.replace('index_', '').replace('_', ' ').title() for k in indicators}
+            main_col = 'index_kualitas_hidup'
+            color = DatabaseConfig.COLORS['success']
+            color_scale = 'Greens'
+            available_columns = {'nama_kota': 'Nama Kota', 'nama_negara': 'Nama Negara', 'tahun': 'Tahun',
+                               'index_kualitas_hidup': 'Index Kualitas Hidup', 'index_keamanan': 'Index Keamanan',
+                               'index_kesehatan': 'Index Kesehatan', 'index_pendidikan': 'Index Pendidikan',
+                               'index_biaya_hidup': 'Index Biaya Hidup'}
+            default_cols = ['nama_kota', 'nama_negara', 'tahun', 'index_kualitas_hidup', 'index_keamanan']
         
+        render_metrics(df, metrics_config)
         st.markdown("---")
         
         # Visualisasi
-        tab1, tab2, tab3 = st.tabs(["Trend Polusi", "Perbandingan Indikator", "Perbandingan Kota"])
+        tab1, tab2, tab3 = st.tabs([f"Trend {menu.split()[0]}", "Perbandingan Indikator", "Perbandingan Kota"])
         
         with tab1:
-            st.subheader("Trend Index Kualitas Udara")
-            render_trend_chart(polusi_df, 'index_kualitas_udara', 'Trend Polusi', 
-                             selected_kota, DatabaseConfig.COLORS['danger'])
+            st.subheader(f"Trend {main_col.replace('_', ' ').title()}")
+            render_trend_chart(df, main_col, f'Trend {menu.split()[0]}', selected_kota, color)
         
         with tab2:
-            st.subheader("Perbandingan Indikator Polusi")
-            latest_year = polusi_df['tahun'].max()
-            latest_polusi = polusi_df[polusi_df['tahun'] == latest_year].copy()
-            
-            if not latest_polusi.empty:
-                if len(latest_polusi) > 10:
-                    latest_polusi = latest_polusi.nlargest(10, 'index_kualitas_udara')
-                
-                fig = go.Figure()
-                for indicator in ['index_co2', 'index_ozone', 'index_no2', 'pm25']:
-                    fig.add_trace(go.Bar(
-                        name=indicator.replace('index_', '').replace('_', ' ').upper(),
-                        x=latest_polusi['nama_kota'],
-                        y=latest_polusi[indicator]
-                    ))
-                
-                fig.update_layout(
-                    title=f'Perbandingan Indikator Polusi ({latest_year})',
-                    xaxis_title='Kota', yaxis_title='Nilai Index',
-                    barmode='group', height=500
-                )
-                st.plotly_chart(fig, use_container_width=True)
+            st.subheader(f"Perbandingan Indikator {menu.split()[0]}")
+            latest_year = df['tahun'].max()
+            latest_df = df[df['tahun'] == latest_year].copy()
+            if not latest_df.empty:
+                if len(latest_df) > 10:
+                    latest_df = latest_df.nlargest(10, main_col)
+                render_comparison_bar(latest_df, indicators, labels_map, 
+                                    f'Perbandingan Indikator {menu.split()[0]} ({latest_year})')
         
         with tab3:
-            st.subheader("Perbandingan Polusi Antar Kota")
-            latest_year = polusi_df['tahun'].max()
-            latest_polusi = polusi_df[polusi_df['tahun'] == latest_year].copy()
-            
-            if not latest_polusi.empty:
-                latest_polusi_sorted = latest_polusi.sort_values('index_kualitas_udara', ascending=True)
-                
-                fig = px.bar(latest_polusi_sorted, y='nama_kota', x='index_kualitas_udara', orientation='h',
-                           title=f'Index Kualitas Udara per Kota ({latest_year})',
-                           labels={'nama_kota': 'Kota', 'index_kualitas_udara': 'Index Kualitas Udara'},
-                           color='index_kualitas_udara', color_continuous_scale='Reds')
-                fig.update_layout(height=max(400, len(latest_polusi_sorted) * 30))
-                st.plotly_chart(fig, use_container_width=True)
+            st.subheader(f"Perbandingan {menu.split()[0]} Antar Kota")
+            latest_year = df['tahun'].max()
+            latest_df = df[df['tahun'] == latest_year].copy()
+            if not latest_df.empty:
+                render_horizontal_bar(latest_df, main_col, 
+                                    f'{main_col.replace("_", " ").title()} per Kota ({latest_year})',
+                                    color_scale)
         
-        # Tabel Data
-        available_columns = {
-            'nama_kota': 'Nama Kota', 'nama_negara': 'Nama Negara', 'tahun': 'Tahun',
-            'index_kualitas_udara': 'Index Kualitas Udara', 'index_co2': 'Index CO2',
-            'index_ozone': 'Index Ozone', 'index_no2': 'Index NO2', 'pm25': 'PM2.5'
-        }
-        default_cols = ['nama_kota', 'nama_negara', 'tahun', 'index_kualitas_udara', 'pm25']
-        render_data_table(polusi_df, available_columns, default_cols, "polusi_columns")
+        render_data_table(df, available_columns, default_cols, f"{data_type}_columns")
     else:
-        st.warning("Data polusi tidak tersedia untuk filter yang dipilih")
-
-# ============================================
-# HALAMAN KUALITAS HIDUP
-# ============================================
-elif menu == "Kualitas Hidup":
-    st.title("Analisis Kualitas Hidup")
-    
-    # Filter
-    selected_negara, selected_kota, negara_list, kota_list = render_filter("kualitas")
-    
-    # Ambil data
-    kualitas_df = get_filtered_data(selected_negara, selected_kota, negara_list, kota_list, 'kualitas')
-    
-    if not kualitas_df.empty:
-        st.markdown("---")
-        
-        # Metrics
-        metrics_config = {
-            'index_kualitas_hidup': 'Index Kualitas',
-            'index_keamanan': 'Keamanan',
-            'index_kesehatan': 'Kesehatan',
-            'index_pendidikan': 'Pendidikan',
-            'index_biaya_hidup': 'Biaya Hidup'
-        }
-        render_metrics(kualitas_df, metrics_config)
-        
-        st.markdown("---")
-        
-        # Visualisasi
-        tab1, tab2, tab3 = st.tabs(["Trend Kualitas Hidup", "Breakdown Indikator", "Ranking Kota"])
-        
-        with tab1:
-            st.subheader("Trend Index Kualitas Hidup")
-            render_trend_chart(kualitas_df, 'index_kualitas_hidup', 'Trend Kualitas Hidup',
-                             selected_kota, DatabaseConfig.COLORS['success'])
-        
-        with tab2:
-            st.subheader("Breakdown Indikator Kualitas Hidup")
-            latest_year = kualitas_df['tahun'].max()
-            latest_kualitas = kualitas_df[kualitas_df['tahun'] == latest_year].copy()
-            
-            if not latest_kualitas.empty:
-                if len(latest_kualitas) > 10:
-                    latest_kualitas = latest_kualitas.nlargest(10, 'index_kualitas_hidup')
-                
-                fig = go.Figure()
-                for indicator in ['index_keamanan', 'index_kesehatan', 'index_pendidikan', 'index_biaya_hidup']:
-                    fig.add_trace(go.Bar(
-                        name=indicator.replace('index_', '').replace('_', ' ').title(),
-                        x=latest_kualitas['nama_kota'],
-                        y=latest_kualitas[indicator]
-                    ))
-                
-                fig.update_layout(
-                    title=f'Breakdown Indikator Kualitas Hidup ({latest_year})',
-                    xaxis_title='Kota', yaxis_title='Nilai Index',
-                    barmode='group', height=500
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        
-        with tab3:
-            st.subheader("Ranking Kota Berdasarkan Kualitas Hidup")
-            latest_year = kualitas_df['tahun'].max()
-            latest_kualitas = kualitas_df[kualitas_df['tahun'] == latest_year].copy()
-            
-            if not latest_kualitas.empty:
-                latest_kualitas_sorted = latest_kualitas.sort_values('index_kualitas_hidup', ascending=True)
-                
-                fig = px.bar(latest_kualitas_sorted, y='nama_kota', x='index_kualitas_hidup', orientation='h',
-                           title=f'Ranking Kualitas Hidup per Kota ({latest_year})',
-                           labels={'nama_kota': 'Kota', 'index_kualitas_hidup': 'Index Kualitas Hidup'},
-                           color='index_kualitas_hidup', color_continuous_scale='Greens')
-                fig.update_layout(height=max(400, len(latest_kualitas_sorted) * 30))
-                st.plotly_chart(fig, use_container_width=True)
-        
-        # Tabel Data
-        available_columns = {
-            'nama_kota': 'Nama Kota', 'nama_negara': 'Nama Negara', 'tahun': 'Tahun',
-            'index_kualitas_hidup': 'Index Kualitas Hidup', 'index_keamanan': 'Index Keamanan',
-            'index_kesehatan': 'Index Kesehatan', 'index_pendidikan': 'Index Pendidikan',
-            'index_biaya_hidup': 'Index Biaya Hidup'
-        }
-        default_cols = ['nama_kota', 'nama_negara', 'tahun', 'index_kualitas_hidup', 'index_keamanan']
-        render_data_table(kualitas_df, available_columns, default_cols, "kualitas_columns")
-    else:
-        st.warning("Data kualitas hidup tidak tersedia untuk filter yang dipilih")
+        st.warning(f"Data {data_type} tidak tersedia untuk filter yang dipilih")
 
 # ============================================
 # HALAMAN PERBANDINGAN DATA
@@ -397,7 +372,7 @@ elif menu == "Perbandingan Data":
         else:
             st.markdown("---")
             
-            # Ambil data kedua kota
+            # Ambil data
             polusi1 = DatabaseConfig.get_polusi_data(id_kota=id_kota1)
             polusi2 = DatabaseConfig.get_polusi_data(id_kota=id_kota2)
             kualitas1 = DatabaseConfig.get_kualitas_hidup_data(id_kota=id_kota1)
@@ -407,182 +382,62 @@ elif menu == "Perbandingan Data":
             
             with tab1:
                 st.subheader("Perbandingan Data Polusi")
-                
-                if not polusi1.empty and not polusi2.empty:
-                    common_years = set(polusi1['tahun'].tolist()) & set(polusi2['tahun'].tolist())
-                    
-                    if common_years:
-                        latest_year = max(common_years)
-                        p1 = polusi1[polusi1['tahun'] == latest_year].iloc[0]
-                        p2 = polusi2[polusi2['tahun'] == latest_year].iloc[0]
-                        
-                        # Metrics comparison
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown(f"#### {p1['nama_kota']}")
-                            for metric, label in [('index_kualitas_udara', 'Index Kualitas Udara'), 
-                                                 ('pm25', 'PM2.5'), ('index_co2', 'CO2'), ('index_no2', 'NO2')]:
-                                st.metric(label, f"{p1[metric]:.1f}")
-                        
-                        with col2:
-                            st.markdown(f"#### {p2['nama_kota']}")
-                            for metric, label in [('index_kualitas_udara', 'Index Kualitas Udara'), 
-                                                 ('pm25', 'PM2.5'), ('index_co2', 'CO2'), ('index_no2', 'NO2')]:
-                                delta = p2[metric] - p1[metric]
-                                st.metric(label, f"{p2[metric]:.1f}", delta=f"{delta:+.1f}", delta_color="inverse")
-                        
-                        st.markdown("---")
-                        
-                        # Comparison chart
-                        fig = go.Figure(data=[
-                            go.Bar(name=p1['nama_kota'], x=['Index Polusi', 'PM2.5', 'CO2', 'NO2'],
-                                  y=[p1['index_kualitas_udara'], p1['pm25'], p1['index_co2'], p1['index_no2']]),
-                            go.Bar(name=p2['nama_kota'], x=['Index Polusi', 'PM2.5', 'CO2', 'NO2'],
-                                  y=[p2['index_kualitas_udara'], p2['pm25'], p2['index_co2'], p2['index_no2']])
-                        ])
-                        fig.update_layout(title=f'Perbandingan Indikator Polusi ({latest_year})',
-                                        barmode='group', height=400)
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Trend comparison
-                        st.markdown("#### Trend Polusi dari Waktu ke Waktu")
-                        combined_polusi = pd.concat([
-                            polusi1.assign(kota=p1['nama_kota']),
-                            polusi2.assign(kota=p2['nama_kota'])
-                        ])
-                        
-                        fig = px.line(combined_polusi, x='tahun', y='index_kualitas_udara', color='kota', markers=True,
-                                    labels={'tahun': 'Tahun', 'index_kualitas_udara': 'Index Kualitas Udara'})
-                        fig.update_layout(height=400)
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.warning("Tidak ada data tahun yang sama untuk kedua kota")
-                else:
-                    st.warning("Data polusi tidak lengkap untuk perbandingan")
+                render_comparison_tab(polusi1, polusi2, 'polusi')
             
             with tab2:
                 st.subheader("Perbandingan Kualitas Hidup")
-                
-                if not kualitas1.empty and not kualitas2.empty:
-                    common_years = set(kualitas1['tahun'].tolist()) & set(kualitas2['tahun'].tolist())
-                    
-                    if common_years:
-                        latest_year = max(common_years)
-                        k1 = kualitas1[kualitas1['tahun'] == latest_year].iloc[0]
-                        k2 = kualitas2[kualitas2['tahun'] == latest_year].iloc[0]
-                        
-                        # Metrics comparison
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown(f"#### {k1['nama_kota']}")
-                            for metric, label in [('index_kualitas_hidup', 'Index Kualitas Hidup'),
-                                                 ('index_keamanan', 'Keamanan'), ('index_kesehatan', 'Kesehatan'),
-                                                 ('index_pendidikan', 'Pendidikan'), ('index_biaya_hidup', 'Biaya Hidup')]:
-                                st.metric(label, f"{k1[metric]:.1f}")
-                        
-                        with col2:
-                            st.markdown(f"#### {k2['nama_kota']}")
-                            for metric, label in [('index_kualitas_hidup', 'Index Kualitas Hidup'),
-                                                 ('index_keamanan', 'Keamanan'), ('index_kesehatan', 'Kesehatan'),
-                                                 ('index_pendidikan', 'Pendidikan'), ('index_biaya_hidup', 'Biaya Hidup')]:
-                                delta = k2[metric] - k1[metric]
-                                st.metric(label, f"{k2[metric]:.1f}", delta=f"{delta:+.1f}")
-                        
-                        st.markdown("---")
-                        
-                        # Radar chart comparison
-                        fig = go.Figure()
-                        indicators = ['index_keamanan', 'index_kesehatan', 'index_pendidikan', 'index_biaya_hidup']
-                        labels = ['Keamanan', 'Kesehatan', 'Pendidikan', 'Biaya Hidup']
-                        
-                        fig.add_trace(go.Scatterpolar(r=[k1[ind] for ind in indicators], theta=labels,
-                                                     fill='toself', name=k1['nama_kota']))
-                        fig.add_trace(go.Scatterpolar(r=[k2[ind] for ind in indicators], theta=labels,
-                                                     fill='toself', name=k2['nama_kota']))
-                        
-                        fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
-                                        title=f'Perbandingan Indikator Kualitas Hidup ({latest_year})', height=500)
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Trend comparison
-                        st.markdown("#### Trend Kualitas Hidup dari Waktu ke Waktu")
-                        combined_kualitas = pd.concat([
-                            kualitas1.assign(kota=k1['nama_kota']),
-                            kualitas2.assign(kota=k2['nama_kota'])
-                        ])
-                        
-                        fig = px.line(combined_kualitas, x='tahun', y='index_kualitas_hidup', color='kota', markers=True,
-                                    labels={'tahun': 'Tahun', 'index_kualitas_hidup': 'Index Kualitas Hidup'})
-                        fig.update_layout(height=400)
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.warning("Tidak ada data tahun yang sama untuk kedua kota")
-                else:
-                    st.warning("Data kualitas hidup tidak lengkap untuk perbandingan")
+                render_comparison_tab(kualitas1, kualitas2, 'kualitas')
             
             with tab3:
                 st.subheader("Overview Perbandingan")
-                
-                if not polusi1.empty and not polusi2.empty and not kualitas1.empty and not kualitas2.empty:
-                    all_years = (set(polusi1['tahun'].tolist()) & set(polusi2['tahun'].tolist()) &
-                                set(kualitas1['tahun'].tolist()) & set(kualitas2['tahun'].tolist()))
-                    
-                    if all_years:
-                        latest_year = max(all_years)
+                try:
+                    if not any([polusi1.empty, polusi2.empty, kualitas1.empty, kualitas2.empty]):
+                        all_years = (set(polusi1['tahun'].tolist()) & set(polusi2['tahun'].tolist()) &
+                                    set(kualitas1['tahun'].tolist()) & set(kualitas2['tahun'].tolist()))
                         
-                        p1 = polusi1[polusi1['tahun'] == latest_year].iloc[0]
-                        p2 = polusi2[polusi2['tahun'] == latest_year].iloc[0]
-                        k1 = kualitas1[kualitas1['tahun'] == latest_year].iloc[0]
-                        k2 = kualitas2[kualitas2['tahun'] == latest_year].iloc[0]
-                        
-                        # Comparison table
-                        comparison_data = {
-                            'Indikator': ['Index Polusi', 'PM2.5', 'CO2', 'Index Kualitas Hidup', 
-                                        'Keamanan', 'Kesehatan', 'Pendidikan'],
-                            k1['nama_kota']: [f"{p1['index_kualitas_udara']:.1f}", f"{p1['pm25']:.1f}", f"{p1['index_co2']:.1f}",
-                                            f"{k1['index_kualitas_hidup']:.1f}", f"{k1['index_keamanan']:.1f}",
-                                            f"{k1['index_kesehatan']:.1f}", f"{k1['index_pendidikan']:.1f}"],
-                            k2['nama_kota']: [f"{p2['index_kualitas_udara']:.1f}", f"{p2['pm25']:.1f}", f"{p2['index_co2']:.1f}",
-                                            f"{k2['index_kualitas_hidup']:.1f}", f"{k2['index_keamanan']:.1f}",
-                                            f"{k2['index_kesehatan']:.1f}", f"{k2['index_pendidikan']:.1f}"],
-                            'Selisih': [f"{(p2['index_kualitas_udara'] - p1['index_kualitas_udara']):.1f}",
-                                      f"{(p2['pm25'] - p1['pm25']):.1f}", f"{(p2['index_co2'] - p1['index_co2']):.1f}",
-                                      f"{(k2['index_kualitas_hidup'] - k1['index_kualitas_hidup']):.1f}",
-                                      f"{(k2['index_keamanan'] - k1['index_keamanan']):.1f}",
-                                      f"{(k2['index_kesehatan'] - k1['index_kesehatan']):.1f}",
-                                      f"{(k2['index_pendidikan'] - k1['index_pendidikan']):.1f}"]
-                        }
-                        
-                        df_comparison = pd.DataFrame(comparison_data)
-                        st.dataframe(df_comparison, use_container_width=True, hide_index=True)
-                        
-                        st.markdown("---")
-                        
-                        # Summary insights
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown("#### Ringkasan Polusi")
-                            better_pollution = p1['nama_kota'] if p1['index_kualitas_udara'] < p2['index_kualitas_udara'] else p2['nama_kota']
-                            st.success(f"{better_pollution} memiliki kualitas udara lebih baik")
-                        
-                        with col2:
-                            st.markdown("#### Ringkasan Kualitas Hidup")
-                            better_quality = k1['nama_kota'] if k1['index_kualitas_hidup'] > k2['index_kualitas_hidup'] else k2['nama_kota']
-                            st.success(f"{better_quality} memiliki kualitas hidup lebih baik")
+                        if all_years:
+                            latest_year = max(all_years)
+                            p1, p2 = polusi1[polusi1['tahun'] == latest_year].iloc[0], polusi2[polusi2['tahun'] == latest_year].iloc[0]
+                            k1, k2 = kualitas1[kualitas1['tahun'] == latest_year].iloc[0], kualitas2[kualitas2['tahun'] == latest_year].iloc[0]
+                            
+                            comparison_data = {
+                                'Indikator': ['Index Polusi', 'PM2.5', 'CO2', 'Index Kualitas Hidup', 'Keamanan', 'Kesehatan', 'Pendidikan'],
+                                k1['nama_kota']: [f"{p1['index_kualitas_udara']:.1f}", f"{p1['pm25']:.1f}", f"{p1['index_co2']:.1f}",
+                                                f"{k1['index_kualitas_hidup']:.1f}", f"{k1['index_keamanan']:.1f}",
+                                                f"{k1['index_kesehatan']:.1f}", f"{k1['index_pendidikan']:.1f}"],
+                                k2['nama_kota']: [f"{p2['index_kualitas_udara']:.1f}", f"{p2['pm25']:.1f}", f"{p2['index_co2']:.1f}",
+                                                f"{k2['index_kualitas_hidup']:.1f}", f"{k2['index_keamanan']:.1f}",
+                                                f"{k2['index_kesehatan']:.1f}", f"{k2['index_pendidikan']:.1f}"],
+                                'Selisih': [f"{(p2['index_kualitas_udara'] - p1['index_kualitas_udara']):.1f}",
+                                          f"{(p2['pm25'] - p1['pm25']):.1f}", f"{(p2['index_co2'] - p1['index_co2']):.1f}",
+                                          f"{(k2['index_kualitas_hidup'] - k1['index_kualitas_hidup']):.1f}",
+                                          f"{(k2['index_keamanan'] - k1['index_keamanan']):.1f}",
+                                          f"{(k2['index_kesehatan'] - k1['index_kesehatan']):.1f}",
+                                          f"{(k2['index_pendidikan'] - k1['index_pendidikan']):.1f}"]
+                            }
+                            
+                            st.dataframe(pd.DataFrame(comparison_data), use_container_width=True, hide_index=True)
+                            st.markdown("---")
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.markdown("#### Ringkasan Polusi")
+                                better_pollution = p1['nama_kota'] if p1['index_kualitas_udara'] < p2['index_kualitas_udara'] else p2['nama_kota']
+                                st.success(f"{better_pollution} memiliki kualitas udara lebih baik")
+                            with col2:
+                                st.markdown("#### Ringkasan Kualitas Hidup")
+                                better_quality = k1['nama_kota'] if k1['index_kualitas_hidup'] > k2['index_kualitas_hidup'] else k2['nama_kota']
+                                st.success(f"{better_quality} memiliki kualitas hidup lebih baik")
+                        else:
+                            st.warning("Tidak ada data lengkap untuk tahun yang sama")
                     else:
-                        st.warning("Tidak ada data lengkap untuk tahun yang sama")
-                else:
-                    st.warning("Data tidak lengkap untuk overview perbandingan")
+                        st.warning("Data tidak lengkap untuk overview perbandingan")
+                except Exception as e:
+                    st.error(f"Terjadi error: {str(e)}")
     else:
         st.error("Data kota tidak tersedia")
 
 # Footer
 st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray;'>
-    <p>Dashboard Polusi dan Kualitas Hidup | Kelompok 9</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown('<div style="text-align: center; color: gray;"><p>Dashboard Polusi dan Kualitas Hidup | Kelompok 9</p></div>', 
+           unsafe_allow_html=True)

@@ -4,17 +4,15 @@ import pandas as pd
 
 class DatabaseConfig:
     """Konfigurasi koneksi database"""
-    
-    # Konfigurasi Database
+
     DB_CONFIG = {
         'host': 'localhost',
         'user': 'root',
-        'password': '',  # Sesuaikan dengan password MySQL Anda
+        'password': '',  
         'database': 'polusi',
         'charset': 'utf8mb4'
     }
-    
-    # Warna untuk visualisasi
+
     COLORS = {
         'primary': '#1f77b4',
         'secondary': '#ff7f0e',
@@ -28,7 +26,6 @@ class DatabaseConfig:
         'gray': '#7f7f7f'
     }
     
-    # Palet warna untuk multiple data
     COLOR_PALETTE = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
                      '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
     
@@ -62,14 +59,14 @@ class DatabaseConfig:
     @staticmethod
     def get_negara_list():
         """Mendapatkan list negara"""
-        query = "SELECT kode_negara, nama, benua FROM negara ORDER BY nama"
+        query = "SELECT kode_negara, nama_negara, benua FROM negara ORDER BY nama_negara"
         return DatabaseConfig.execute_query(query)
     
     @staticmethod
     def get_kota_by_negara(kode_negara):
         """Mendapatkan list kota berdasarkan negara"""
         query = """
-        SELECT k.id_kota, k.nama_kota, n.nama as nama_negara
+        SELECT k.id_kota, k.nama_kota, n.nama_negara
         FROM kota k
         JOIN negara n ON k.kode_negara = n.kode_negara
         WHERE k.kode_negara = %s
@@ -81,10 +78,10 @@ class DatabaseConfig:
     def get_all_kota():
         """Mendapatkan semua kota dengan info negara"""
         query = """
-        SELECT k.id_kota, k.nama_kota, n.nama as nama_negara, n.kode_negara
+        SELECT k.id_kota, k.nama_kota, n.nama_negara, n.kode_negara
         FROM kota k
         JOIN negara n ON k.kode_negara = n.kode_negara
-        ORDER BY n.nama, k.nama_kota
+        ORDER BY n.nama_negara, k.nama_kota
         """
         return DatabaseConfig.execute_query(query)
     
@@ -92,7 +89,7 @@ class DatabaseConfig:
     def get_polusi_data(id_kota=None, tahun=None):
         """Mendapatkan data polusi"""
         query = """
-        SELECT p.*, k.nama_kota, n.nama as nama_negara
+        SELECT p.*, k.nama_kota, n.nama_negara
         FROM polusi p
         JOIN kota k ON p.id_kota = k.id_kota
         JOIN negara n ON k.kode_negara = n.kode_negara
@@ -116,7 +113,7 @@ class DatabaseConfig:
     def get_kualitas_hidup_data(id_kota=None, tahun=None):
         """Mendapatkan data kualitas hidup"""
         query = """
-        SELECT kh.*, k.nama_kota, n.nama as nama_negara
+        SELECT kh.*, k.nama_kota, n.nama_negara
         FROM kualitas_hidup kh
         JOIN kota k ON kh.id_kota = k.id_kota
         JOIN negara n ON k.kode_negara = n.kode_negara
@@ -140,7 +137,7 @@ class DatabaseConfig:
     def get_populasi_kota(id_kota=None):
         """Mendapatkan data populasi kota"""
         query = """
-        SELECT pk.*, k.nama_kota, n.nama as nama_negara
+        SELECT pk.*, k.nama_kota, n.nama_negara
         FROM populasi_kota pk
         JOIN kota k ON pk.id_kota = k.id_kota
         JOIN negara n ON k.kode_negara = n.kode_negara
@@ -173,3 +170,4 @@ class DatabaseConfig:
         LEFT JOIN kualitas_hidup kh ON k.id_kota = kh.id_kota
         """
         return DatabaseConfig.execute_query(query)
+    

@@ -1,12 +1,15 @@
 CREATE DATABASE IF NOT EXISTS polusi;
 USE polusi;
+ALTER TABLE negara CHANGE COLUMN nama nama_negara VARCHAR(100);
 
 CREATE TABLE negara (
     kode_negara VARCHAR(3) PRIMARY KEY,
-    nama VARCHAR(100),
+    nama_negara VARCHAR(100),
     benua VARCHAR(100),
     created_at TIMESTAMP
 );
+
+DESCRIBE negara;
 
 INSERT INTO negara VALUES
 ('USA','United States','Amerika','2024-11-12'),
